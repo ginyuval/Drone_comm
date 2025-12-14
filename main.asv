@@ -53,7 +53,7 @@ gl_params.scanAngles = -90:0.5:90;
 
 
 % Jammer type selection
-gl_params.jammerType = 'Spot';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
+gl_params.jammerType = 'MultiTone';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
 
 % Jammer parameters
 switch lower(gl_params.jammerType)
@@ -197,26 +197,27 @@ for k = 1:gl_params.numFrames
     % Select which estimated DOA corresponds to the desired signal using preamble correlation
     [estTheta_des, corrMetric, corrBuf] = select_desired_doa_by_preamble( ...
         Xk_total, Estimated_angs, gl_params, corrBuf);
-
+    plot(k, abs(corrMetric), 'o')
+    hold on
+    drawnow;
     % The other DOA is treated as the interferer (if two distinct angles exist)
     estTheta_jam = pick_other_angle(Estimated_angs, estTheta_des);
 
 
     % ---------- Beamforming weights (placeholder for pc_bf) ----------
     % Replace with your actual function:
-    npc = mdltest(R, "fb")
-    w = pc_beamformer(R, npc, gl_params.numElements, estTheta_des);
+    w = pc_beamformer(R, gl_params.num_signals, gl_params.numElements, estTheta_des);
     w = conj(w);
 
 
-    pattern(ula,gl_params.f0 ,gl_params.scanAngles,0,...
-        'Weights',w,'CoordinateSystem','rectangular',...
-        'Type','directivity');
-    hold on
-    xline(gl_params.theta_desired_deg, 'Color','green')
-    xline(gl_params.theta_jammer_deg, 'Color','red')
-    drawnow
-    hold off
+    % pattern(ula,gl_params.f0 ,gl_params.scanAngles,0,...
+    %     'Weights',w,'CoordinateSystem','rectangular',...
+    %     'Type','directivity');
+    % hold on
+    % xline(gl_params.theta_desired_deg, 'Color','green')
+    % xline(gl_params.theta_jammer_deg, 'Color','red')
+    % drawnow
+    % hold off
     w_q = w;   % If quantizing later: apply fi() here
 
     % ---------- Apply beamformer ----------
