@@ -33,19 +33,19 @@ gl_params.Nproc     = gl_params.numFrames * gl_params.frameLen;
 % ---------------------------------------------------------------
 
 % Covariance memory factor
-gl_params.lambda_mem = 0.03;
+gl_params.lambda_mem = 0.1;
 
 % Signal bandwidth
 gl_params.bw_sig = 20e6;
 gl_params.bw_tx  = gl_params.bw_sig;
 
 % SNR / SIR
-gl_params.SNR_in_dB = 15;
-gl_params.SIR_in_dB = -20;
+gl_params.SNR_in_dB = 10;
+gl_params.SIR_in_dB = -10;
 
 % DOAs
 gl_params.theta_desired_deg = 30;
-gl_params.theta_jammer_deg  = -20;
+gl_params.theta_jammer_deg  = -19;
 gl_params.num_signals = 2;
 
 % Scan grid
@@ -53,12 +53,12 @@ gl_params.scanAngles = -90:0.5:90;
 
 
 % Jammer type selection
-gl_params.jammerType = 'Barrage';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
+gl_params.jammerType = 'spot';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
 
 % Jammer parameters
 switch lower(gl_params.jammerType)
     case 'cw'
-        gl_params.jamParams = struct('fOffsetHz', 20e6);
+        gl_params.jamParams = struct('fOffsetHz', 5e6);
 
     case 'barrage'
         gl_params.jamParams = struct('bwHz', 100e6);
@@ -66,8 +66,8 @@ switch lower(gl_params.jammerType)
     case 'spot'
         gl_params.jamParams = struct( ...
             'bwHz', 20e6, ...
-            'onTimeSec', 100e-6, ...
-            'startTimeSec', 300e-6 );
+            'onTimeSec', 600e-6, ...
+            'startTimeSec', 100e-6 );
 
     case 'sweep'
         gl_params.jamParams = struct( ...
@@ -109,10 +109,11 @@ t      = gl_params.t;
 bw_sig = gl_params.bw_sig;
 gl_params.numPackets = 20;
 gl_params.dataSymbolsPerPacket = 10;
-gl_params.guardIntervalSec = 300e-6;
-gl_params.preambleDurSec = 0.1e-3;
+gl_params.guardIntervalSec = 100e-6;
+gl_params.guardIntervalN = round(100e-6*gl_params.fs);
+gl_params.preambleDurSec = 0.3e-3;
 gl_params.randSeed = rand; 
-gl_params.NFFT = 30; 
+gl_params.NFFT = 128; 
 gl_params.preambleShiftPerSym = 10;
 % gl_params.preambleRoot = 1;
 % gl_params.preamblePatternLen = 10;   % random 5 symbols per call, repeated
@@ -170,7 +171,7 @@ X_total = S_array + J_array + noise;
 
 %% ========================= 7) INITIALIZE COVARIANCE =======================
 
-R = 1e-6 * eye(gl_params.numElements);
+R = eye(4, 4);
 
 %% ========================= 8) FRAME LOOP ==================================
 
@@ -179,13 +180,17 @@ y_sig_out   = y_out;
 y_jam_out   = y_out;
 y_noise_out = y_out;
 SNR_out_dB  = zeros(1, gl_params.numFrames);
-
+FirstTimeNPC2 = 0;
+FirstTimeNPC1 = 0;
 % Correlation configuration
 gl_params.preamble = preamble_td(:).';           % row vector
 gl_params.Lp = numel(gl_params.preamble);
 
 % Buffer to handle preamble across frame boundaries
 corrBuf = zeros(1, gl_params.Lp - 1);           % stores last Lp-1 samples (beamformed)
+
+hist1 = NaN(1,5);
+hist2 = NaN(1,5);
 
 for k = 1:gl_params.numFrames
     idxStart = (k-1)*gl_params.frameLen + 1;
@@ -200,29 +205,55 @@ for k = 1:gl_params.numFrames
 
     % ---------- Instantaneous covariance ----------
     R_inst = (Xk_total * Xk_total') / Lk;
+    R = R_inst;
 
-    % ---------- Exponential memory ----------
-    R = gl_params.lambda_mem * R + (1 - gl_params.lambda_mem) * R_inst;
-
+    
     % ---------- DOA estimation using phased.MVDREstimator ----------
 
 
     [Y, Estimated_angs] = mvdrEstimator(Xk_total.');   % Estimated_angs contains 2 angles (deg)
-    
+    [theta_trk, hist1, hist2] = fix_angle_indexing_5(Estimated_angs, hist1, hist2, 15);
+    Estimated_angs = theta_trk;   % now index is stable
+    % Estimated_angs
     % Select which estimated DOA corresponds to the desired signal using preamble correlation
     [estTheta_des, corrMetric, corrBuf] = select_desired_doa_by_preamble( ...
-        Xk_total, Estimated_angs, gl_params, corrBuf);
-
+        (Xk_total), Estimated_angs, gl_params, corrBuf, ofdm_params);
+     % plot(abs(corrBuf))
+     % drawnow
+    estTheta_des_v(k) = estTheta_des;
     % The other DOA is treated as the interferer (if two distinct angles exist)
     estTheta_jam = pick_other_angle(Estimated_angs, estTheta_des);
 
-
-    % ---------- Beamforming weights (placeholder for pc_bf) ----------
-    % Replace with your actual function:
-    npc = mdltest(R);
-    if ~npc
-        npc = 1
+    % ---------- Exponential memory ----------
+    npc = mdltest(R_inst);
+    if npc < 2
+        estTheta_des = max(Estimated_angs);
     end
+    if npc==2 && FirstTimeNPC2==0
+        R_2 = R_inst;
+        FirstTimeNPC2 = 1;
+    end
+    if npc==1 && FirstTimeNPC1==0
+        R_1 = R_inst;
+        FirstTimeNPC1 = 1;
+    end
+
+  
+    if npc == 2
+        R_2 = gl_params.lambda_mem * R_2 + (1 - gl_params.lambda_mem) * R_inst;
+        R = R_2;
+    elseif npc == 1
+        R_1 = gl_params.lambda_mem * R_1 + (1 - gl_params.lambda_mem) * R_inst;
+        R = R_1;
+    else
+        R = R_inst;
+    end
+
+    if ~npc
+        npc = 1;
+    end
+    % ---------- Beamforming weights (placeholder for pc_bf) ----------
+    
     w = pc_beamformer(R, npc, gl_params.numElements, estTheta_des);
     w = conj(w)/norm(w);
     
@@ -234,6 +265,8 @@ for k = 1:gl_params.numFrames
     hold on
     xline(gl_params.theta_desired_deg, 'Color','green')
     xline(gl_params.theta_jammer_deg, 'Color','red')
+    ylim([-50, 10]);
+    xlim([-90, 90]);
     drawnow
     hold off
     w_q = w;   % If quantizing later: apply fi() here
