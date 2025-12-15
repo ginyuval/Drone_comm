@@ -16,13 +16,13 @@ gl_params.numElements = 4;
 gl_params.d           = 0.5 * gl_params.lambda;
 
 % Sampling and timing
-gl_params.fs      = 30e6;                 % Sampling frequency [Hz]
+gl_params.fs      = 60e6;                 % Sampling frequency [Hz]
 gl_params.Tsim    = 3e-3;                % Total simulation time [s]
 gl_params.t       = 0 : 1/gl_params.fs : gl_params.Tsim - 1/gl_params.fs;
 gl_params.N       = numel(gl_params.t);
 
 % ---------------- FRAME-BASED PROCESSING (FIXED) ----------------
-gl_params.frameDur  = 100e-6;                                % Frame duration [s]
+gl_params.frameDur  = 20e-6;                                % Frame duration [s]
 gl_params.frameLen  = round(gl_params.frameDur * gl_params.fs);
 
 % Number of frames needed to cover ALL samples
@@ -33,19 +33,19 @@ gl_params.Nproc     = gl_params.numFrames * gl_params.frameLen;
 % ---------------------------------------------------------------
 
 % Covariance memory factor
-gl_params.lambda_mem = 0.;
+gl_params.lambda_mem = 0.0;
 
 % Signal bandwidth
 gl_params.bw_sig = 20e6;
 gl_params.bw_tx  = gl_params.bw_sig;
 
 % SNR / SIR
-gl_params.SNR_in_dB = 20;
-gl_params.SIR_in_dB = 1;
+gl_params.SNR_in_dB = 15;
+gl_params.SIR_in_dB = -20;
 
 % DOAs
-gl_params.theta_desired_deg = 30;
-gl_params.theta_jammer_deg  = -19;
+gl_params.theta_desired_deg = -30;
+gl_params.theta_jammer_deg  = 19;
 gl_params.num_signals = 2;
 
 % Scan grid
@@ -53,7 +53,7 @@ gl_params.scanAngles = -90:0.5:90;
 
 
 % Jammer type selection
-gl_params.jammerType = 'multitone';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
+gl_params.jammerType = 'spot';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
 
 % Jammer parameters
 switch lower(gl_params.jammerType)
@@ -65,7 +65,7 @@ switch lower(gl_params.jammerType)
 
     case 'spot'
         gl_params.jamParams = struct( ...
-            'bwHz', 20e6, ...3
+            'bwHz', 20e6, ...
             'onTimeSec', 600e-6, ...
             'startTimeSec', 100e-6 );
 
@@ -111,22 +111,14 @@ gl_params.numPackets = 20;
 gl_params.dataSymbolsPerPacket = 10;
 gl_params.guardIntervalSec = 100e-6;
 gl_params.guardIntervalN = round(100e-6*gl_params.fs);
-gl_params.preambleDurSec = 0.1e-3;
+gl_params.preambleDurSec = 0.3e-3;
 gl_params.randSeed = rand; 
 gl_params.NFFT = 128; 
 gl_params.preambleShiftPerSym = 10;
-% gl_params.preambleRoot = 1;
-% gl_params.preamblePatternLen = 10;   % random 5 symbols per call, repeated
-
-
 
 
 % White Gaussian complex baseband
 [s_bb, ofdm_params, preamble_td] = generate_ofdm_signal_multi(gl_params);
-
-% Band-limit using bandfilter()
-% s0_filt = bandfilter(s_bb.', 1, fs, -bw_sig/2, bw_sig/2);
-% s_bb = s0_filt.';                    % row vector
 
 % Normalize desired signal to unit RMS
 s_bb = s_bb / sqrt(mean(abs(s_bb).^2));
@@ -187,7 +179,8 @@ gl_params.preamble = preamble_td(:).';           % row vector
 gl_params.Lp = numel(gl_params.preamble);
 gl_params.L = 2;
 % Buffer to handle preamble across frame boundaries
-corrBuf = zeros(1, gl_params.Lp - 1);           % stores last Lp-1 samples (beamformed)
+bufferLenSamples = 2*ofdm_params.packetSamples + gl_params.guardIntervalN;
+corrBuf = zeros(gl_params.numElements, bufferLenSamples);         
 
 hist1 = NaN(1,5);
 hist2 = NaN(1,5);
@@ -217,11 +210,11 @@ for k = 1:gl_params.numFrames
     % Estimated_angs
     % Select which estimated DOA corresponds to the desired signal using preamble correlation
     [estTheta_des, corrMetric, corrBuf] = select_desired_doa_by_preamble( ...
-        (Xk_total), Estimated_angs, gl_params, corrBuf, ofdm_params);
+        (Xk_total), Estimated_angs, gl_params, corrBuf);
      % plot(abs(corrBuf))
      % drawnow
     estTheta_des_v(k) = estTheta_des;
-    estTheta_des = 30;
+    % estTheta_des = 30;
     % The other DOA is treated as the interferer (if two distinct angles exist)
     estTheta_jam = pick_other_angle(Estimated_angs, estTheta_des);
 
@@ -230,7 +223,7 @@ for k = 1:gl_params.numFrames
     if npc < 2
         estTheta_des = max(Estimated_angs);
     end
-    estTheta_des
+
     if npc==2 && FirstTimeNPC2==0
         R_2 = R_inst;
         FirstTimeNPC2 = 1;

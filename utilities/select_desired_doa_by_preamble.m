@@ -1,85 +1,74 @@
-function [theta_des_hat, metric, corrBufOut] = select_desired_doa_by_preamble(Xk, candAnglesDeg, gl_params, corrBufIn, ofdm_params)
-    %SELECT_DESIRED_DOA_BY_PREAMBLE Choose desired DOA among candidates via preamble correlation.
-    %
-    %   Xk             : [M x L] array snapshot in current frame
-    %   candAnglesDeg  : candidate DOAs (deg), e.g., two angles from MVDR
-    %   gl_params      : must include .f0, .d, .lambda, .numElements, .preamble, .Lp
-    %   corrBufIn      : [1 x (Lp-1)] previous tail samples of beamformed stream
-    %
-    %   theta_des_hat  : chosen desired DOA (deg)
-    %   metric         : correlation peak metric for the chosen DOA
-    %   corrBufOut     : updated buffer for next frame
-
-    candAnglesDeg = candAnglesDeg(:).';  % row
+function [theta_des_hat, metric, corrBufOut] = select_desired_doa_by_preamble(Xk, candAnglesDeg, gl_params, corrBufIn)
+    % SELECT_DESIRED_DOA_BY_PREAMBLE
+    % Now re-processes historical Raw Data to enable a fair comparison between angles.
+    candAnglesDeg = candAnglesDeg(:).';
     candAnglesDeg = candAnglesDeg(~isnan(candAnglesDeg));
     
+    % If there are no candidates, return the buffer as is (updated with new Xk at the end)
     if isempty(candAnglesDeg)
         theta_des_hat = NaN;
         metric = -Inf;
-        corrBufOut = corrBufIn;
+        % Update FIFO buffer even when no decision is made
+        bufLen = size(corrBufIn, 2);
+        X_combined = [corrBufIn, Xk];
+        if size(X_combined, 2) > bufLen
+            corrBufOut = X_combined(:, end-bufLen+1:end);
+        else
+            corrBufOut = X_combined;
+        end
         return;
     end
     
-    M  = gl_params.numElements;
-    Lp = gl_params.Lp;
-    Lp = ofdm_params.packetSamples+1*gl_params.guardIntervalN;
-    p  = gl_params.preamble;  % [1 x Lp]
+    p = gl_params.preamble; 
+    % Create Matched Filter
+    h = conj(fliplr(p));
     
-    % Matched filter (time-reversed conjugate)
-    h = conj(fliplr(p));      % [1 x Lp]
-    % h = p;
     metrics = -Inf(1, numel(candAnglesDeg));
+    
+    % Concatenate raw data: history + current frame
+    % X_proc will be of size [M x (BufferLen + CurrentFrameLen)]
+    X_proc = [corrBufIn, Xk];
     
     for i = 1:numel(candAnglesDeg)
         th = candAnglesDeg(i);
     
-        % Simple steering beamformer for candidate DOA (robust and cheap)
-        a = steering_vec_ula(th, gl_params);         % [M x 1]
-        w = a / norm(a);                              % [M x 1]
+        % Create steering vector for the candidate
+        a = steering_vec_ula(th, gl_params);
+        w = a / norm(a);
     
-        % Beamform current frame
-        y = (w') * Xk;                                % [1 x L]
+        % Re-apply Beamforming to all history and present data
+        % Now, the Preamble located in the Buffer "feels" the new weights w
+        y_proc = w' * X_proc; 
     
-        % Concatenate buffer so we can detect preamble spanning frames
-        y_ext = [corrBufIn, y];                       % [1 x (Lp-1+L)]
-    
-        % Matched filter / correlation output
-        yPow = sqrt(mean(abs(y).^2) + 1e-12);
-        r = conv(y_ext, h, 'full')/std(conv(y_ext, flip(conj(y_ext)), 'full'));                  % length = (Lp-1+L) - Lp + 1 = L
-        % r = conv(y_ext, h, 'full');
-        % r = xcorr(y_ext, h);
-        % Metric: peak magnitude, normalized by local energy (optional but recommended)
-        peakVal = max(abs(r));
-        % if i==1
-        %     plot((abs(r)), '-o', Color='r', LineWidth=3)
-        % else
-        %     plot((abs(r)), '-*', Color='b')
-        % end
-        % hold on
-        % Normalization helps if power differs across candidates
-        % yPow = sqrt(mean(abs(y).^2) + 1e-12);
-        % metrics(i) = peakVal / yPow;
-        metrics(i) = peakVal;
+        % Perform correlation on the processed signal
+        r = conv(y_proc, h, 'full');
+
+        if i == 1
+            plot(abs(r), '-o', 'Color', 'red')
+            hold on;
+        else
+            plot(abs(r), '-*', 'Color', 'blue')
+        end
+        
+
+        % The metric is the peak magnitude
+        metrics(i) = max(abs(r));
     end
-    % drawnow
-    % hold off
-    
-    % Pick candidate with maximum correlation metric
+    hold off
+    drawnow
+    % Select the angle with the highest correlation
     [metric, idxBest] = max(metrics);
     theta_des_hat = candAnglesDeg(idxBest);
-    theta_des_hat
-    % Update buffer for next frame using beamformed output of the selected DOA
-    % Update buffer with the last (Lp-1) samples of yBest, padded if needed
-    aBest = steering_vec_ula(theta_des_hat, gl_params);
-    wBest = aBest / norm(aBest);
-    yBest = (wBest') * Xk;                          % [1 x L]
-
-    Lb = Lp - 1;
-    corrBufOut = [corrBufIn, yBest];              % concatenate previous buffer + current frame
-    if numel(corrBufOut) >= Lb
-        corrBufOut = corrBufOut(end-Lb+1:end);    % keep last Lp-1 samples
-        % size(corrBufOut)
+    
+    % Update buffer for the next frame - storing RAW DATA
+    bufLen = size(corrBufIn, 2);
+    
+    % Take the last samples from the combined matrix
+    if size(X_proc, 2) >= bufLen
+        corrBufOut = X_proc(:, end-bufLen+1:end);
     else
-        corrBufOut = [zeros(1, Lb-numel(corrBufOut)), corrBufOut]; % left-pad with zeros
+        % Pad with zeros on the left if the buffer is not yet full (at the beginning)
+        padLen = bufLen - size(X_proc, 2);
+        corrBufOut = [zeros(gl_params.numElements, padLen), X_proc];
     end
 end
