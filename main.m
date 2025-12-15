@@ -22,7 +22,7 @@ gl_params.t       = 0 : 1/gl_params.fs : gl_params.Tsim - 1/gl_params.fs;
 gl_params.N       = numel(gl_params.t);
 
 % ---------------- FRAME-BASED PROCESSING (FIXED) ----------------
-gl_params.frameDur  = 30e-6;                                % Frame duration [s]
+gl_params.frameDur  = 100e-6;                                % Frame duration [s]
 gl_params.frameLen  = round(gl_params.frameDur * gl_params.fs);
 
 % Number of frames needed to cover ALL samples
@@ -33,15 +33,15 @@ gl_params.Nproc     = gl_params.numFrames * gl_params.frameLen;
 % ---------------------------------------------------------------
 
 % Covariance memory factor
-gl_params.lambda_mem = 0.1;
+gl_params.lambda_mem = 0.;
 
 % Signal bandwidth
 gl_params.bw_sig = 20e6;
 gl_params.bw_tx  = gl_params.bw_sig;
 
 % SNR / SIR
-gl_params.SNR_in_dB = 10;
-gl_params.SIR_in_dB = -10;
+gl_params.SNR_in_dB = 20;
+gl_params.SIR_in_dB = 1;
 
 % DOAs
 gl_params.theta_desired_deg = 30;
@@ -53,7 +53,7 @@ gl_params.scanAngles = -90:0.5:90;
 
 
 % Jammer type selection
-gl_params.jammerType = 'spot';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
+gl_params.jammerType = 'multitone';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
 
 % Jammer parameters
 switch lower(gl_params.jammerType)
@@ -65,7 +65,7 @@ switch lower(gl_params.jammerType)
 
     case 'spot'
         gl_params.jamParams = struct( ...
-            'bwHz', 20e6, ...
+            'bwHz', 20e6, ...3
             'onTimeSec', 600e-6, ...
             'startTimeSec', 100e-6 );
 
@@ -92,7 +92,7 @@ ula = phased.ULA('NumElements', gl_params.numElements, ...
 mvdrEstimator = phased.MVDREstimator('SensorArray', ula, ...
                                       'OperatingFrequency', gl_params.f0, ...
                                       'NumSignals', gl_params.num_signals, ...
-                                      'DOAOutputPort',true);
+                                      'DOAOutputPort',true, 'ForwardBackwardAveraging',true);
 
 theta_des_rad = deg2rad(gl_params.theta_desired_deg);
 theta_jam_rad = deg2rad(gl_params.theta_jammer_deg);
@@ -111,7 +111,7 @@ gl_params.numPackets = 20;
 gl_params.dataSymbolsPerPacket = 10;
 gl_params.guardIntervalSec = 100e-6;
 gl_params.guardIntervalN = round(100e-6*gl_params.fs);
-gl_params.preambleDurSec = 0.3e-3;
+gl_params.preambleDurSec = 0.1e-3;
 gl_params.randSeed = rand; 
 gl_params.NFFT = 128; 
 gl_params.preambleShiftPerSym = 10;
@@ -185,7 +185,7 @@ FirstTimeNPC1 = 0;
 % Correlation configuration
 gl_params.preamble = preamble_td(:).';           % row vector
 gl_params.Lp = numel(gl_params.preamble);
-
+gl_params.L = 2;
 % Buffer to handle preamble across frame boundaries
 corrBuf = zeros(1, gl_params.Lp - 1);           % stores last Lp-1 samples (beamformed)
 
@@ -221,6 +221,7 @@ for k = 1:gl_params.numFrames
      % plot(abs(corrBuf))
      % drawnow
     estTheta_des_v(k) = estTheta_des;
+    estTheta_des = 30;
     % The other DOA is treated as the interferer (if two distinct angles exist)
     estTheta_jam = pick_other_angle(Estimated_angs, estTheta_des);
 
@@ -229,6 +230,7 @@ for k = 1:gl_params.numFrames
     if npc < 2
         estTheta_des = max(Estimated_angs);
     end
+    estTheta_des
     if npc==2 && FirstTimeNPC2==0
         R_2 = R_inst;
         FirstTimeNPC2 = 1;
@@ -254,28 +256,30 @@ for k = 1:gl_params.numFrames
     end
     % ---------- Beamforming weights (placeholder for pc_bf) ----------
     
-    w = pc_beamformer(R, npc, gl_params.numElements, estTheta_des);
-    w = conj(w)/norm(w);
+    % w = pc_beamformer(R, npc, gl_params.numElements, estTheta_des);
+    w = pc_beamformer_ss(R, npc, gl_params.numElements, estTheta_des, gl_params.L);
+    w = (w)/norm(w);
     
 
-
-    pattern(ula,gl_params.f0 ,gl_params.scanAngles,0,...
-        'Weights',w,'CoordinateSystem','rectangular',...
-        'Type','directivity');
-    hold on
-    xline(gl_params.theta_desired_deg, 'Color','green')
-    xline(gl_params.theta_jammer_deg, 'Color','red')
-    ylim([-50, 10]);
-    xlim([-90, 90]);
-    drawnow
-    hold off
+    % ula_pat = phased.ULA('NumElements', gl_params.numElements-gl_params.L+1, ...
+    %              'ElementSpacing', gl_params.d);
+    % pattern(ula_pat,gl_params.f0 ,gl_params.scanAngles,0,...
+    %     'Weights',w,'CoordinateSystem','rectangular',...
+    %     'Type','directivity');
+    % hold on
+    % xline(gl_params.theta_desired_deg, 'Color','green')
+    % xline(gl_params.theta_jammer_deg, 'Color','red')
+    % ylim([-50, 10]);
+    % xlim([-90, 90]);
+    % drawnow
+    % hold off
     w_q = w;   % If quantizing later: apply fi() here
 
     % ---------- Apply beamformer ----------
-    yk_total = w_q' * Xk_total;
-    yk_sig   = w_q' * Xk_sig;
-    yk_jam   = w_q' * Xk_jam;
-    yk_noise = w_q' * Xk_noise;
+    yk_total = w_q' * Xk_total(1:gl_params.numElements-gl_params.L+1, :);
+    yk_sig   = w_q' * Xk_sig(1:gl_params.numElements-gl_params.L+1, :);
+    yk_jam   = w_q' * Xk_jam(1:gl_params.numElements-gl_params.L+1, :);
+    yk_noise = w_q' * Xk_noise(1:gl_params.numElements-gl_params.L+1, :);
 
     % Store output
     y_out(idx) = yk_total;
@@ -293,33 +297,43 @@ end
 %% ========================= 9) PLOTS ======================================
 
 figure;
+
+% ===================== Subplot 1: Output SNR =====================
 subplot(3,1,1);
 plot(1:gl_params.numFrames, SNR_out_dB, '-o');
 xlabel('Frame index');
 ylabel('Output SNR [dB]');
 title('Per-frame output SNR');
-ylim([-10, 26])
+ylim([-10, 26]);
 grid on;
+legend('Beamformer output SNR','Location','best');
 
+% ===================== Subplot 2: Beamformer Output Components =====================
 subplot(3,1,2);
-% plot(gl_params.t*1e3, abs(y_out));
-hold on
+hold on;
 plot(gl_params.t*1e3, abs(y_sig_out)/norm(y_sig_out));
 plot(gl_params.t*1e3, abs(y_jam_out)/norm(y_sig_out));
 plot(gl_params.t*1e3, abs(y_noise_out)/norm(y_sig_out));
-xlabel('Time [ms]');
-ylabel('Real\{y(t)\}');
-title('Beamformer Output – Real Part');
-grid on;
+hold off;
 
+xlabel('Time [ms]');
+ylabel('Normalized magnitude');
+title('Beamformer output components');
+grid on;
+legend({'Desired signal','Interference','Noise'}, 'Location','best');
+
+% ===================== Subplot 3: Beamformer Input Components =====================
 subplot(3,1,3);
-% plot(gl_params.t*1e3, abs(y_out));
-hold on
+hold on;
 plot(gl_params.t*1e3, abs(s_bb)/norm(s_bb)/4);
 plot(gl_params.t*1e3, abs(jammer_scaled)/norm(s_bb)/4);
 plot(gl_params.t*1e3, abs(noise(1,:))/norm(s_bb)/4);
+hold off;
+
 xlabel('Time [ms]');
-ylabel('Real\{y(t)\}');
-title('Beamformer input – Real Part');
+ylabel('Normalized magnitude');
+title('Beamformer input components (element 1)');
 grid on;
+legend({'Desired signal','Interference','Noise'}, 'Location','best');
+
 

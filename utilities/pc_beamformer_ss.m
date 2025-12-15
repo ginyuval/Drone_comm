@@ -1,6 +1,7 @@
 function [w, R_r, R_ss] = pc_beamformer_ss(R, npc, numelements, angle, L)
 
 % ---------------- PC reduction (same as your original) ----------------
+M = numelements-L+1;
 v_m = exp(1j*pi*((0:M-1)')*sin(deg2rad(angle)));
 R_ss = spsmooth(R, L);
 [V, D] = eig(R_ss, 'vector');
