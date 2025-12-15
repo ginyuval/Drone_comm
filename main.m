@@ -1,7 +1,7 @@
 %% DRONE COMMUNICATION SIMULATION – MAIN SCRIPT (UPDATED WITH gl_params)
 
 clear; clc; close all;
-addpath ('C:\Users\ginyu\OneDrive - Technion\Desktop\טכניון\תואר שני\Thesis\PMO_project\Drone_comm\*')
+% addpath ('C:\Users\ginyu\OneDrive - Technion\Desktop\טכניון\תואר שני\Thesis\PMO_project\Drone_comm\*')
 %% ========================= 1) DEFINE GLOBAL PARAMETERS ===================
 
 gl_params = struct();
@@ -16,13 +16,13 @@ gl_params.numElements = 4;
 gl_params.d           = 0.5 * gl_params.lambda;
 
 % Sampling and timing
-gl_params.fs      = 1e9;                 % Sampling frequency [Hz]
+gl_params.fs      = 30e6;                 % Sampling frequency [Hz]
 gl_params.Tsim    = 3e-3;                % Total simulation time [s]
 gl_params.t       = 0 : 1/gl_params.fs : gl_params.Tsim - 1/gl_params.fs;
 gl_params.N       = numel(gl_params.t);
 
 % ---------------- FRAME-BASED PROCESSING (FIXED) ----------------
-gl_params.frameDur  = 10e-6;                                % Frame duration [s]
+gl_params.frameDur  = 30e-6;                                % Frame duration [s]
 gl_params.frameLen  = round(gl_params.frameDur * gl_params.fs);
 
 % Number of frames needed to cover ALL samples
@@ -33,14 +33,14 @@ gl_params.Nproc     = gl_params.numFrames * gl_params.frameLen;
 % ---------------------------------------------------------------
 
 % Covariance memory factor
-gl_params.lambda_mem = 0.0;
+gl_params.lambda_mem = 0.03;
 
 % Signal bandwidth
 gl_params.bw_sig = 20e6;
 gl_params.bw_tx  = gl_params.bw_sig;
 
 % SNR / SIR
-gl_params.SNR_in_dB = 10;
+gl_params.SNR_in_dB = 15;
 gl_params.SIR_in_dB = -20;
 
 % DOAs
@@ -53,12 +53,12 @@ gl_params.scanAngles = -90:0.5:90;
 
 
 % Jammer type selection
-gl_params.jammerType = 'Spot';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
+gl_params.jammerType = 'Barrage';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
 
 % Jammer parameters
 switch lower(gl_params.jammerType)
     case 'cw'
-        gl_params.jamParams = struct('fOffsetHz', 5e6);
+        gl_params.jamParams = struct('fOffsetHz', 20e6);
 
     case 'barrage'
         gl_params.jamParams = struct('bwHz', 100e6);
@@ -66,13 +66,13 @@ switch lower(gl_params.jammerType)
     case 'spot'
         gl_params.jamParams = struct( ...
             'bwHz', 20e6, ...
-            'onTimeSec', 500e-6, ...
+            'onTimeSec', 100e-6, ...
             'startTimeSec', 300e-6 );
 
     case 'sweep'
         gl_params.jamParams = struct( ...
             'numTones', 20, ...
-            'dwellTimeSec', 50e-6, ...
+            'dwellTimeSec', 100e-6, ...
             'fSpanHz', 40e6 );
 
     case 'multitone'
@@ -107,13 +107,25 @@ a_jammer  = exp(1j * 2*pi * gl_params.d / gl_params.lambda * elemIdx * sin(theta
 fs     = gl_params.fs;
 t      = gl_params.t;
 bw_sig = gl_params.bw_sig;
+gl_params.numPackets = 20;
+gl_params.dataSymbolsPerPacket = 10;
+gl_params.guardIntervalSec = 300e-6;
+gl_params.preambleDurSec = 0.1e-3;
+gl_params.randSeed = rand; 
+gl_params.NFFT = 30; 
+gl_params.preambleShiftPerSym = 10;
+% gl_params.preambleRoot = 1;
+% gl_params.preamblePatternLen = 10;   % random 5 symbols per call, repeated
+
+
+
 
 % White Gaussian complex baseband
-[s_bb, ofdm_params, preamble_td] = generate_ofdm_signal(gl_params);
+[s_bb, ofdm_params, preamble_td] = generate_ofdm_signal_multi(gl_params);
 
 % Band-limit using bandfilter()
-s0_filt = bandfilter(s_bb.', 1, fs, -bw_sig/2, bw_sig/2);
-s_bb = s0_filt.';                    % row vector
+% s0_filt = bandfilter(s_bb.', 1, fs, -bw_sig/2, bw_sig/2);
+% s_bb = s0_filt.';                    % row vector
 
 % Normalize desired signal to unit RMS
 s_bb = s_bb / sqrt(mean(abs(s_bb).^2));
@@ -162,8 +174,11 @@ R = 1e-6 * eye(gl_params.numElements);
 
 %% ========================= 8) FRAME LOOP ==================================
 
-y_out      = zeros(1, gl_params.N);
-SNR_out_dB = zeros(1, gl_params.numFrames);
+y_out       = zeros(1, gl_params.N);
+y_sig_out   = y_out;
+y_jam_out   = y_out;
+y_noise_out = y_out;
+SNR_out_dB  = zeros(1, gl_params.numFrames);
 
 % Correlation configuration
 gl_params.preamble = preamble_td(:).';           % row vector
@@ -204,9 +219,13 @@ for k = 1:gl_params.numFrames
 
     % ---------- Beamforming weights (placeholder for pc_bf) ----------
     % Replace with your actual function:
-    npc = mdltest(R, "fb")
+    npc = mdltest(R);
+    if ~npc
+        npc = 1
+    end
     w = pc_beamformer(R, npc, gl_params.numElements, estTheta_des);
-    w = conj(w);
+    w = conj(w)/norm(w);
+    
 
 
     pattern(ula,gl_params.f0 ,gl_params.scanAngles,0,...
@@ -227,6 +246,10 @@ for k = 1:gl_params.numFrames
 
     % Store output
     y_out(idx) = yk_total;
+    y_sig_out(idx) = yk_sig;
+    y_jam_out(idx) = yk_jam;
+    y_noise_out(idx) = yk_noise;
+
 
     % ---------- Compute output SNR ----------
     P_sig_out   = mean(abs(yk_sig).^2);
@@ -237,16 +260,33 @@ end
 %% ========================= 9) PLOTS ======================================
 
 figure;
-subplot(2,1,1);
+subplot(3,1,1);
 plot(1:gl_params.numFrames, SNR_out_dB, '-o');
 xlabel('Frame index');
 ylabel('Output SNR [dB]');
 title('Per-frame output SNR');
+ylim([-10, 26])
 grid on;
 
-subplot(2,1,2);
-plot(gl_params.t*1e3, real(y_out));
+subplot(3,1,2);
+% plot(gl_params.t*1e3, abs(y_out));
+hold on
+plot(gl_params.t*1e3, abs(y_sig_out)/norm(y_sig_out));
+plot(gl_params.t*1e3, abs(y_jam_out)/norm(y_sig_out));
+plot(gl_params.t*1e3, abs(y_noise_out)/norm(y_sig_out));
 xlabel('Time [ms]');
 ylabel('Real\{y(t)\}');
 title('Beamformer Output – Real Part');
 grid on;
+
+subplot(3,1,3);
+% plot(gl_params.t*1e3, abs(y_out));
+hold on
+plot(gl_params.t*1e3, abs(s_bb)/norm(s_bb)/4);
+plot(gl_params.t*1e3, abs(jammer_scaled)/norm(s_bb)/4);
+plot(gl_params.t*1e3, abs(noise(1,:))/norm(s_bb)/4);
+xlabel('Time [ms]');
+ylabel('Real\{y(t)\}');
+title('Beamformer input – Real Part');
+grid on;
+

@@ -1,148 +1,174 @@
 function [s_bb, ofdm_params, preamble_td] = generate_ofdm_signal(gl_params)
-%GENERATE_OFDM_SIGNAL Generate baseband OFDM signal with leading preamble.
+%GENERATE_OFDM_SIGNAL Generate baseband OFDM waveform with multiple packets.
 %
-%   [s_bb, ofdm_params, preamble_td] = GENERATE_OFDM_SIGNAL(gl_params)
+% Each packet structure:
+%   [preamble (Np symbols)] + [data (Nd symbols)] + [guard zeros (Ng samples)]
 %
-%   Inputs (from gl_params):
-%       gl_params.fs       : sampling frequency [Hz]
-%       gl_params.t        : time vector [1 x N]
-%       gl_params.N        : number of samples
-%       gl_params.bw_sig   : desired OFDM occupied bandwidth [Hz]
-%       gl_params.preambleDur (optional): preamble duration [s],
-%                                        default = 0.3e-3 (0.3 ms)
+% Required fields (gl_params):
+%   fs, t, N, bw_sig
 %
-%   Outputs:
-%       s_bb        : complex baseband OFDM signal [1 x N], unit RMS power
-%       ofdm_params : struct with OFDM configuration
-%       preamble_td : time-domain preamble samples [1 x Lp], where
-%                    Lp = ofdm_params.preambleLenSamples (after normalization)
+% Optional fields (gl_params):
+%   preambleDurSec        : preamble duration [s], default 0.3e-3
+%   numPackets            : number of packets, default 3
+%   dataSymbolsPerPacket  : number of OFDM data symbols per packet, default 10
+%   guardIntervalSec      : zero-guard between packets [s], default 50e-6
+%   Nfft                  : IFFT size, default 1024
+%   cpFrac                : CP fraction, default 1/8
+%   randSeed              : set RNG seed for repeatability (optional)
 %
-%   Notes:
-%       1) OFDM uses QPSK symbols on active subcarriers.
-%       2) Preamble is implemented as the first Ns_pream OFDM symbols.
-%       3) The first preambleLenSamples of s_bb are exactly preamble_td.
-%
+% Outputs:
+%   s_bb        : [1 x N] complex waveform, normalized to unit RMS over ACTIVE part
+%   ofdm_params : struct (packet layout + OFDM config)
+%   preamble_td : [1 x Lp] time-domain preamble (one packet), normalized consistently
 
-% Extract basic parameters
+% ---------------------- Basic parameters ----------------------------------
 fs     = gl_params.fs;
-t      = gl_params.t;
 N      = gl_params.N;
 bw_sig = gl_params.bw_sig;
 
-% Preamble duration
-if isfield(gl_params, 'preambleDur')
-    preambleDur = gl_params.preambleDur;
-else
-    preambleDur = 0.3e-3;  % default: 0.3 ms
+% Optional RNG seed
+if isfield(gl_params, 'randSeed')
+    rng(gl_params.randSeed);
 end
 
-% ---------------------- OFDM parameter definition -------------------------
-
-% IFFT size
-Nfft   = 1024;
-cpFrac = 1/8;                        % CP length as fraction of Nfft
-cpLen  = round(cpFrac * Nfft);       % CP in samples
-
-% Subcarrier spacing
-deltaF = fs / Nfft;                  % [Hz]
-
-% Number of used subcarriers to approximate desired bandwidth
-Nused  = floor(bw_sig / deltaF);
-Nused  = min(Nused, Nfft - 2);       % margin away from edges
-if mod(Nused, 2) == 1
-    Nused = Nused - 1;               % enforce even number
+% Packetization parameters
+if isfield(gl_params, 'numPackets'),           numPackets = gl_params.numPackets; else, numPackets = 3; end
+if isfield(gl_params, 'dataSymbolsPerPacket'), Nd = gl_params.dataSymbolsPerPacket; else, Nd = 10; end
+if isfield(gl_params, 'guardIntervalSec'),     guardSec = gl_params.guardIntervalSec; else, guardSec = 50e-6; end
+if isfield(gl_params, 'preambleDurSec'),       preambleSec = gl_params.preambleDurSec; ...
+elseif isfield(gl_params, 'preambleDur'),      preambleSec = gl_params.preambleDur; ...
+else,                                          preambleSec = 0.3e-3;
 end
 
-% DC-centered indices of active subcarriers: [-Nused/2 ... Nused/2-1]
-usedIdx_dc = (-Nused/2 : Nused/2-1);     % length = Nused
+% OFDM parameters
+if isfield(gl_params, 'Nfft'),   Nfft = gl_params.Nfft; else, Nfft = 1024; end
+if isfield(gl_params, 'cpFrac'), cpFrac = gl_params.cpFrac; else, cpFrac = 1/8; end
+cpLen = round(cpFrac * Nfft);
 
-% Samples per OFDM symbol including CP
+deltaF = fs / Nfft;
+
+% Number of used subcarriers
+Nused = floor(bw_sig / deltaF);
+Nused = min(Nused, Nfft - 2);
+if mod(Nused,2)==1, Nused = Nused - 1; end
+usedIdx_dc = (-Nused/2 : Nused/2-1);
+
 NsymSamples = Nfft + cpLen;
+Tsym        = NsymSamples / fs;
 
-% Symbol duration
-Tsym = NsymSamples / fs;             % [s]
+% Preamble symbols count
+Np = max(1, round(preambleSec / Tsym));   % preamble symbols per packet
 
-% Number of preamble symbols to approximate preambleDur
-numPreambleSymbols = max(1, round(preambleDur / Tsym));
+% Guard samples
+Ng = round(guardSec * fs);
 
-% Number of symbols needed to cover total duration
-numSymbols = ceil(N / NsymSamples);
-numPreambleSymbols = min(numPreambleSymbols, numSymbols);  % safety
+% ---------------------- Build deterministic preamble (KNOWN) --------------
+% Use a fixed QPSK pattern for preamble so correlation works across runs.
+% (If you want a specific standard later, replace this.)
+bitsI_p = randi([0 1], Nused, Np);
+bitsQ_p = randi([0 1], Nused, Np);
+preambleSym = ((2*bitsI_p - 1) + 1j*(2*bitsQ_p - 1)) / sqrt(2); % [Nused x Np]
 
-% ---------------------- Generate QPSK data --------------------------------
-% Generate QPSK for all active subcarriers and OFDM symbols
-bitsI   = randi([0 1], Nused, numSymbols);
-bitsQ   = randi([0 1], Nused, numSymbols);
-dataSym = ((2*bitsI - 1) + 1j*(2*bitsQ - 1)) / sqrt(2);  % QPSK, unit power
+% ---------------------- Allocate full waveform buffer ----------------------
+packetSamples = (Np + Nd) * NsymSamples;      % samples in preamble+data (no guard)
+totalSamples  = numPackets * packetSamples + (numPackets-1) * Ng;
 
-% For now, the preamble is simply the first numPreambleSymbols OFDM symbols
-% using the first columns of dataSym. If later you want a fixed known
-% pattern, you can overwrite dataSym(:,1:numPreambleSymbols) with a
-% deterministic sequence.
-preambleSym = dataSym(:, 1:numPreambleSymbols);
+s_full = zeros(1, totalSamples);
 
-% ---------------------- Time-domain OFDM construction ---------------------
+% ---------------------- Helper to build one OFDM symbol --------------------
+    function x_cp = ofdm_symbol_from_subcarriers(symVecUsed)
+        % symVecUsed: [Nused x 1] values for active subcarriers in DC-centered indexing
+        X_dc = zeros(Nfft, 1);
+        centerIdx = Nfft/2 + 1;
+        X_dc(centerIdx + usedIdx_dc) = symVecUsed;
 
-s_bb_full = zeros(1, numSymbols * NsymSamples);
+        X_ifft = ifftshift(X_dc);
+        x_no_cp = ifft(X_ifft);
+        x_cp = [x_no_cp(end-cpLen+1:end); x_no_cp];  % [NsymSamples x 1]
+    end
 
-for m = 1:numSymbols
-    % Frequency-domain vector in DC-centered indexing
-    X_dc = zeros(Nfft, 1);
-    
-    % DC is at index Nfft/2 + 1 in DC-centered indexing
-    centerIdx = Nfft/2 + 1;
-    X_dc(centerIdx + usedIdx_dc) = dataSym(:, m);
-    
-    % Convert from DC-centered order to standard IFFT order
-    X_ifft = ifftshift(X_dc);
-    
-    % IFFT to obtain OFDM symbol without CP
-    x_no_cp = ifft(X_ifft);                     % [Nfft x 1]
-    
-    % Add cyclic prefix
-    x_cp = [x_no_cp(end - cpLen + 1:end); x_no_cp];  % [NsymSamples x 1]
-    
-    % Insert into global buffer
+% ---------------------- Construct packets ----------------------------------
+writePos = 1;
+for p = 1:numPackets
+
+    % --- Data symbols for this packet (random QPSK) ---
+    bitsI_d = randi([0 1], Nused, Nd);
+    bitsQ_d = randi([0 1], Nused, Nd);
+    dataSym = ((2*bitsI_d - 1) + 1j*(2*bitsQ_d - 1)) / sqrt(2); % [Nused x Nd]
+
+    % --- Concatenate [preamble | data] in frequency domain ---
+    SymFD = [preambleSym, dataSym];  % [Nused x (Np+Nd)]
+
+    % --- Convert to time domain symbol-by-symbol ---
+    pkt_td = zeros(1, packetSamples);
+    for m = 1:(Np+Nd)
+        x_cp = ofdm_symbol_from_subcarriers(SymFD(:,m));
+        idxSym = (m-1)*NsymSamples + 1 : m*NsymSamples;
+        pkt_td(idxSym) = x_cp.';
+    end
+
+    % --- Write packet into global buffer ---
+    s_full(writePos : writePos + packetSamples - 1) = pkt_td;
+    writePos = writePos + packetSamples;
+
+    % --- Insert guard zeros between packets (not after last) ---
+    if p < numPackets
+        writePos = writePos + Ng; % zeros already in s_full
+    end
+end
+
+% ---------------------- Extract time-domain preamble (one packet) ----------
+preambleLenSamples = Np * NsymSamples;
+
+% Build preamble time-domain explicitly from preambleSym (more robust)
+preamble_td_full = zeros(1, preambleLenSamples);
+for m = 1:Np
+    x_cp = ofdm_symbol_from_subcarriers(preambleSym(:,m));
     idxSym = (m-1)*NsymSamples + 1 : m*NsymSamples;
-    s_bb_full(idxSym) = x_cp.';                 % row insertion
+    preamble_td_full(idxSym) = x_cp.';
 end
 
-% ---------------------- Extract preamble in time domain -------------------
+% ---------------------- Normalize -----------------------------------------
+% Normalize using ACTIVE samples only (exclude guard zeros) to keep SIR meaningful.
+activeMask = abs(s_full) > 0; % guard zeros excluded
+P_est = mean(abs(s_full(activeMask)).^2);
 
-preambleLenSamples = numPreambleSymbols * NsymSamples;
-preamble_td_full   = s_bb_full(1:preambleLenSamples);   % before normalization
-
-% ---------------------- Trim and normalize --------------------------------
-
-% Trim to exact simulation length
-s_bb = s_bb_full(1:N);                          % [1 x N]
-
-% Normalize to unit RMS power
-P_sig_est = mean(abs(s_bb).^2);
-if P_sig_est > 0
-    scale = 1 / sqrt(P_sig_est);
-    s_bb = s_bb * scale;
+if ~isempty(P_est) && P_est > 0
+    scale = 1 / sqrt(P_est);
+    s_full = s_full * scale;
     preamble_td_full = preamble_td_full * scale;
-else
-    scale = 1;
 end
 
-% Final preamble_td (normalized); trim in case total N is shorter
-Lp = min(preambleLenSamples, N);
-preamble_td = preamble_td_full(1:Lp);
+% ---------------------- Trim/pad to requested N ----------------------------
+if totalSamples >= N
+    s_bb = s_full(1:N);
+else
+    s_bb = [s_full, zeros(1, N-totalSamples)];
+end
 
-% ---------------------- Fill ofdm_params struct ---------------------------
+% Final preamble (normalized)
+preamble_td = preamble_td_full;
 
+% ---------------------- Fill ofdm_params ----------------------------------
 ofdm_params = struct();
-ofdm_params.Nfft                = Nfft;
-ofdm_params.cpLen               = cpLen;
-ofdm_params.Nused               = Nused;
-ofdm_params.usedIdx_dc          = usedIdx_dc;
-ofdm_params.deltaF              = deltaF;
-ofdm_params.NsymSamples         = NsymSamples;
-ofdm_params.numSymbols          = numSymbols;
-ofdm_params.numPreambleSymbols  = numPreambleSymbols;
-ofdm_params.preambleLenSamples  = preambleLenSamples;
-ofdm_params.preambleDur         = numPreambleSymbols * Tsym;
+ofdm_params.Nfft = Nfft;
+ofdm_params.cpLen = cpLen;
+ofdm_params.cpFrac = cpFrac;
+ofdm_params.deltaF = deltaF;
+ofdm_params.Nused = Nused;
+ofdm_params.usedIdx_dc = usedIdx_dc;
+ofdm_params.NsymSamples = NsymSamples;
+ofdm_params.Tsym = Tsym;
+
+ofdm_params.numPackets = numPackets;
+ofdm_params.numPreambleSymbols = Np;
+ofdm_params.dataSymbolsPerPacket = Nd;
+ofdm_params.guardIntervalSec = guardSec;
+ofdm_params.guardSamples = Ng;
+
+ofdm_params.packetSamples = packetSamples;
+ofdm_params.totalSamplesGenerated = totalSamples;
+ofdm_params.preambleLenSamples = preambleLenSamples;
+ofdm_params.preambleDurSec = Np * Tsym;
 
 end
