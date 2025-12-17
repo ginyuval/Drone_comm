@@ -1,6 +1,6 @@
 %% DRONE COMMUNICATION SIMULATION – MAIN SCRIPT (UPDATED WITH gl_params)
 
-clear; clc; close all;
+% clear; clc; close all;
 addpath(genpath('C:\Users\ginyu\OneDrive - Technion\Desktop\טכניון\תואר שני\Thesis\PMO_project\Drone_comm\'))
 %% ========================= 1) DEFINE GLOBAL PARAMETERS ===================
 
@@ -16,13 +16,20 @@ gl_params.numElements = 4;
 gl_params.d           = 0.5 * gl_params.lambda;
 
 % Sampling and timing
-gl_params.fs      = 60e6;                 % Sampling frequency [Hz]
-gl_params.Tsim    = 1e-3;                % Total simulation time [s]
+gl_params.fs      = 30e6;                 % Sampling frequency [Hz]
+gl_params.Tsim    = 3e-3;                % Total simulation time [s]
 gl_params.t       = 0 : 1/gl_params.fs : gl_params.Tsim - 1/gl_params.fs;
 gl_params.N       = numel(gl_params.t);
 
+% --- Quantization Parameters ---
+gl_params.use_quantization = true; 
+gl_params.bits_phase       = 8;    
+gl_params.bits_gain        = 6;
+gl_params.sqnr_phase = 6.02*gl_params.bits_phase + 1.76;
+gl_params.sqnr_gain = 6.02*gl_params.bits_gain + 1.76;
+
 % ---------------- FRAME-BASED PROCESSING (FIXED) ----------------
-gl_params.frameDur  = 10e-6;                                % Frame duration [s]
+gl_params.frameDur  = 40e-6;                                % Frame duration [s]
 gl_params.frameLen  = round(gl_params.frameDur * gl_params.fs);
 
 % Number of frames needed to cover ALL samples
@@ -40,12 +47,12 @@ gl_params.bw_sig = 20e6;
 gl_params.bw_tx  = gl_params.bw_sig;
 
 % SNR / SIR
-gl_params.SNR_in_dB = 15;
-gl_params.SIR_in_dB = -20;
+gl_params.SNR_in_dB = 20;
+gl_params.SIR_in_dB = -10;
 
 % DOAs
 gl_params.theta_desired_deg = -30;
-gl_params.theta_jammer_deg  = 19;
+gl_params.theta_jammer_deg  = 10;
 gl_params.num_signals = 2;
 
 % Scan grid
@@ -67,7 +74,7 @@ switch lower(gl_params.jammerType)
         gl_params.jamParams = struct( ...
             'bwHz', 20e6, ...
             'onTimeSec', 600e-6, ...
-            'startTimeSec', 100e-6 );
+            'startTimeSec', 250e-6 );
 
     case 'sweep'
         gl_params.jamParams = struct( ...
@@ -237,9 +244,9 @@ for k = 1:gl_params.numFrames
     if npc == 2
         R_2 = gl_params.lambda_mem * R_2 + (1 - gl_params.lambda_mem) * R_inst;
         R = R_2;
-    elseif npc == 1
-        R_1 = gl_params.lambda_mem * R_1 + (1 - gl_params.lambda_mem) * R_inst;
-        R = R_1;
+    % elseif npc == 1
+    %     R_1 = gl_params.lambda_mem * R_1 + (1 - gl_params.lambda_mem) * R_inst;
+    %     R = R_1;
     else
         R = R_inst;
     end
@@ -254,10 +261,18 @@ for k = 1:gl_params.numFrames
     w = (w)/norm(w);
     
 
+    % w_q = w;   % If quantizing later: apply fi() here
+    % ---------- Hardware Quantization ----------
+    if gl_params.use_quantization
+        w_q = quantize_weight_vector(w, gl_params.bits_phase, gl_params.bits_gain);
+    else
+        w_q = w;
+    end
+    
     % ula_pat = phased.ULA('NumElements', gl_params.numElements-gl_params.L+1, ...
     %              'ElementSpacing', gl_params.d);
     % pattern(ula_pat,gl_params.f0 ,gl_params.scanAngles,0,...
-    %     'Weights',w,'CoordinateSystem','rectangular',...
+    %     'Weights',w_q,'CoordinateSystem','rectangular',...
     %     'Type','directivity');
     % hold on
     % xline(gl_params.theta_desired_deg, 'Color','green')
@@ -266,7 +281,6 @@ for k = 1:gl_params.numFrames
     % xlim([-90, 90]);
     % drawnow
     % hold off
-    w_q = w;   % If quantizing later: apply fi() here
 
     % ---------- Apply beamformer ----------
     yk_total = w_q' * Xk_total(1:gl_params.numElements-gl_params.L+1, :);
@@ -289,11 +303,12 @@ end
 
 %% ========================= 9) PLOTS ======================================
 
+LW = 3;
 figure;
 
 % ===================== Subplot 1: Output SNR =====================
 subplot(3,1,1);
-plot(1:gl_params.numFrames, SNR_out_dB, '-o');
+plot(1:gl_params.numFrames, SNR_out_dB, '-*', LineWidth=LW);
 xlabel('Frame index');
 ylabel('Output SNR [dB]');
 title('Per-frame output SNR');
@@ -304,9 +319,9 @@ legend('Beamformer output SNR','Location','best');
 % ===================== Subplot 2: Beamformer Output Components =====================
 subplot(3,1,2);
 hold on;
-plot(gl_params.t*1e3, db(medfilt1(abs(y_sig_out)/norm(y_sig_out), 200)));
-plot(gl_params.t*1e3, db(medfilt1(abs(y_jam_out)/norm(y_sig_out), 200)));
-plot(gl_params.t*1e3, db(medfilt1(abs(y_noise_out)/norm(y_sig_out), 200)));
+plot(gl_params.t*1e3, db(medfilt1(abs(y_sig_out)/norm(y_sig_out), 200)), LineWidth=LW);
+plot(gl_params.t*1e3, db(medfilt1(abs(y_jam_out)/norm(y_sig_out), 200)), LineWidth=LW);
+plot(gl_params.t*1e3, db(medfilt1(abs(y_noise_out)/norm(y_sig_out), 200)), LineWidth=LW);
 hold off;
 
 xlabel('Time [ms]');
@@ -318,9 +333,9 @@ legend({'Desired signal','Interference','Noise'}, 'Location','best');
 % ===================== Subplot 3: Beamformer Input Components =====================
 subplot(3,1,3);
 hold on;
-plot(gl_params.t*1e3, db(medfilt1(abs(s_bb)/norm(s_bb), 200)));
-plot(gl_params.t*1e3, db(medfilt1(abs(jammer_scaled)/norm(s_bb), 200)));
-plot(gl_params.t*1e3, db(medfilt1(abs(noise(1,:))/norm(s_bb), 200)));
+plot(gl_params.t*1e3, db(medfilt1(abs(s_bb)/norm(s_bb), 200)), LineWidth=LW);
+plot(gl_params.t*1e3, db(medfilt1(abs(jammer_scaled)/norm(s_bb), 200)), LineWidth=LW);
+plot(gl_params.t*1e3, db(medfilt1(abs(noise(1,:))/norm(s_bb), 200)), LineWidth=LW);
 hold off;
 
 xlabel('Time [ms]');
