@@ -154,6 +154,7 @@ jammer_scaled = alpha_jam * jammer_unit;   % Correct SIR at input
 
 %% ========================= 6) ARRAY SIGNAL CONSTRUCTION ===================
 
+
 % Desired mapped to array
 S_array = a_desired * s_bb;         % [M x N]
 
