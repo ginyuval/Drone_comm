@@ -1,0 +1,194 @@
+%% Test 1: Preamble Duration vs. Output SNR
+clear; clc; close all;
+addpath(genpath('../')); % Ensure access to parent folders
+
+%% 1. Parameters Setup
+jammerTypeToTest = 'Barrage'; % Select Jammer to test against
+
+% Define range of Preamble durations to test [seconds]
+preambleDurs = [50e-6, 100e-6, 200e-6, 300e-6, 400e-6, 500e-6]; 
+results_oSNR = zeros(size(preambleDurs));
+
+fprintf('Starting Preamble Duration Test with %s Jammer...\n', jammerTypeToTest);
+
+%% 2. Loop
+for i = 1:length(preambleDurs)
+    % Initialize params exactly as in main.m
+    gl_params = get_main_params(jammerTypeToTest);
+    
+    % Override the specific parameter for this test
+    gl_params.preambleDurSec = preambleDurs(i);
+    
+    % Run Simulation
+    avgSNR = run_simulation_core(gl_params);
+    results_oSNR(i) = avgSNR;
+    
+    fprintf('Run %d/%d: Dur=%.1f us -> oSNR=%.2f dB\n', ...
+        i, length(preambleDurs), preambleDurs(i)*1e6, avgSNR);
+end
+
+%% 3. Plot
+figure;
+plot(preambleDurs*1e6, results_oSNR, '-o', 'LineWidth', 2);
+xlabel('Preamble Duration [\mus]');
+ylabel('Average Output SNR [dB]');
+title(['Preamble Duration vs. Output SNR (' jammerTypeToTest ')']);
+grid on;
+
+%% --- Helper Functions ---
+
+function gl_params = get_main_params(jType)
+    % Returns parameters exactly as they appear in main.m
+    gl_params = struct();
+
+    % Physical constants
+    gl_params.c        = 3e8;
+    gl_params.f0       = 1.5e9;
+    gl_params.lambda   = gl_params.c / gl_params.f0;
+
+    % Array configuration
+    gl_params.numElements = 4;
+    gl_params.d           = 0.5 * gl_params.lambda;
+
+    % Sampling and timing
+    gl_params.fs      = 30e6;                 
+    gl_params.Tsim    = 1e-3; % Kept short for testing speed (orig: 3e-3)
+    gl_params.t       = 0 : 1/gl_params.fs : gl_params.Tsim - 1/gl_params.fs;
+    gl_params.N       = numel(gl_params.t);
+
+    % --- Quantization Parameters ---
+    gl_params.use_quantization = true; 
+    gl_params.bits_phase       = 8;    
+    gl_params.bits_gain        = 6;
+    gl_params.sqnr_phase = 6.02*gl_params.bits_phase + 1.76;
+    gl_params.sqnr_gain = 6.02*gl_params.bits_gain + 1.76;
+
+    % ---------------- FRAME-BASED PROCESSING ----------------
+    gl_params.frameDur  = 20e-6;                                
+    gl_params.frameLen  = round(gl_params.frameDur * gl_params.fs);
+    gl_params.numFrames = ceil(gl_params.N / gl_params.frameLen);
+    gl_params.Nproc     = gl_params.numFrames * gl_params.frameLen;
+
+    % Covariance memory factor
+    gl_params.lambda_mem = 0.0;
+
+    % Signal bandwidth
+    gl_params.bw_sig = 20e6;
+    gl_params.bw_tx  = gl_params.bw_sig;
+
+    % SNR / SIR
+    gl_params.SNR_in_dB = 20;
+    gl_params.SIR_in_dB = -10;
+
+    % DOAs
+    gl_params.theta_desired_deg = -30;
+    gl_params.theta_jammer_deg  = 10;
+    gl_params.num_signals = 2;
+    gl_params.scanAngles = -90:0.5:90;
+
+    % Jammer type selection
+    gl_params.jammerType = jType;
+
+    % Jammer parameters (Copied from main.m logic)
+    switch lower(gl_params.jammerType)
+        case 'cw'
+            gl_params.jamParams = struct('fOffsetHz', 5e6);
+        case 'barrage'
+            gl_params.jamParams = struct('bwHz', 100e6);
+        case 'spot'
+            gl_params.jamParams = struct('bwHz', 20e6, 'onTimeSec', 600e-6, 'startTimeSec', 250e-6);
+        case 'sweep'
+            gl_params.jamParams = struct('numTones', 20, 'dwellTimeSec', 100e-6, 'fSpanHz', 40e6);
+        case 'multitone'
+            gl_params.jamParams = struct('numTones', 5, 'fSpanHz', 40e6);
+    end
+end
+
+function avgSNR = run_simulation_core(gl_params)
+    % Initialize objects
+    ula = phased.ULA('NumElements', gl_params.numElements, 'ElementSpacing', gl_params.d);
+    mvdrEstimator = phased.MVDREstimator('SensorArray', ula, 'OperatingFrequency', gl_params.f0, ...
+        'NumSignals', gl_params.num_signals, 'DOAOutputPort', true, 'ForwardBackwardAveraging', true);
+    
+    % Steering vectors
+    theta_des_rad = deg2rad(gl_params.theta_desired_deg);
+    theta_jam_rad = deg2rad(gl_params.theta_jammer_deg);
+    elemIdx = (0:gl_params.numElements-1).';
+    a_desired = exp(1j * 2*pi * gl_params.d / gl_params.lambda * elemIdx * sin(theta_des_rad));
+    a_jammer  = exp(1j * 2*pi * gl_params.d / gl_params.lambda * elemIdx * sin(theta_jam_rad));
+
+    % Generate Signals
+    % Note: preambleDurSec is used inside generate_ofdm_signal_multi if defined in gl_params
+    [s_bb, ofdm_params, preamble_td] = generate_ofdm_signal_multi(gl_params);
+    s_bb = s_bb / sqrt(mean(abs(s_bb).^2)); % Normalize unit RMS
+    
+    jammer_unit = generate_jammer(gl_params.jammerType, gl_params.t, gl_params.fs, gl_params.f0, gl_params.bw_tx, gl_params.jamParams);
+    P_jam_unit = mean(abs(jammer_unit).^2);
+    
+    % Scaling
+    sir_lin = 10^(gl_params.SIR_in_dB/10);
+    P_jam_target = 1 / sir_lin; % P_sig is 1
+    alpha_jam = sqrt(P_jam_target / (P_jam_unit + 1e-12));
+    jammer_scaled = alpha_jam * jammer_unit;
+    
+    % Array Signals
+    S_array = a_desired * s_bb;
+    J_array = a_jammer * jammer_scaled;
+    noisePower = 1 / (10^(gl_params.SNR_in_dB/10));
+    noise = sqrt(noisePower/2)*(randn(gl_params.numElements, gl_params.N) + 1j*randn(gl_params.numElements, gl_params.N));
+    X_total = S_array + J_array + noise;
+    
+    % Frame Loop Variables
+    gl_params.preamble = preamble_td(:).';
+    gl_params.Lp = numel(gl_params.preamble);
+    gl_params.L = 2;
+    bufferLenSamples = 2*ofdm_params.packetSamples + gl_params.guardIntervalN;
+    corrBuf = zeros(gl_params.numElements, bufferLenSamples);
+    hist1 = NaN(1,5); hist2 = NaN(1,5);
+    
+    snr_vec = [];
+    
+    for k = 1:gl_params.numFrames
+        idxStart = (k-1)*gl_params.frameLen + 1;
+        idxEnd = k*gl_params.frameLen;
+        
+        Xk = X_total(:, idxStart:idxEnd);
+        Xk_sig = S_array(:, idxStart:idxEnd);
+        Xk_jam = J_array(:, idxStart:idxEnd);
+        Xk_noise = noise(:, idxStart:idxEnd);
+        Lk = size(Xk, 2);
+        
+        R_inst = (Xk*Xk')/Lk;
+        
+        % MVDR
+        [~, EstAngs] = mvdrEstimator(Xk.');
+        [theta_trk, hist1, hist2] = fix_angle_indexing_5(EstAngs, hist1, hist2, 15);
+        
+        % Preamble Selection
+        [estTheta_des, ~, corrBuf] = select_desired_doa_by_preamble(Xk, theta_trk, gl_params, corrBuf);
+        
+        npc = mdltest(R_inst);
+        if npc < 2, estTheta_des = max(theta_trk); end % Fallback
+        if ~npc, npc=1; end
+
+        % Beamforming
+        w = pc_beamformer_ss(R_inst, npc, gl_params.numElements, estTheta_des, gl_params.L);
+        w = w/norm(w);
+        
+        % Quantization
+        if gl_params.use_quantization
+            w = quantize_weight_vector(w, gl_params.bits_phase, gl_params.bits_gain);
+        end
+        
+        % Apply
+        M_final = gl_params.numElements - gl_params.L + 1;
+        yk_sig = w' * Xk_sig(1:M_final, :);
+        yk_interf = w' * (Xk_jam(1:M_final, :) + Xk_noise(1:M_final, :));
+        
+        P_s = mean(abs(yk_sig).^2);
+        P_i = mean(abs(yk_interf).^2);
+        snr_vec(end+1) = 10*log10(P_s/P_i);
+    end
+    
+    avgSNR = mean(snr_vec(5:end)); % Ignore transient frames
+end

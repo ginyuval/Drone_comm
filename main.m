@@ -24,7 +24,7 @@ gl_params.N       = numel(gl_params.t);
 % --- Quantization Parameters ---
 gl_params.use_quantization = true; 
 gl_params.bits_phase       = 8;    
-gl_params.bits_gain        = 6;
+gl_params.bits_gain        = 8;
 gl_params.sqnr_phase = 6.02*gl_params.bits_phase + 1.76;
 gl_params.sqnr_gain = 6.02*gl_params.bits_gain + 1.76;
 
@@ -48,7 +48,7 @@ gl_params.bw_tx  = gl_params.bw_sig;
 
 % SNR / SIR
 gl_params.SNR_in_dB = 20;
-gl_params.SIR_in_dB = -10;
+gl_params.SIR_in_dB = -15;
 
 % DOAs
 gl_params.theta_desired_deg = -30;
@@ -60,7 +60,7 @@ gl_params.scanAngles = -90:0.5:90;
 
 
 % Jammer type selection
-gl_params.jammerType = 'Spot';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
+gl_params.jammerType = 'MultiTone';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
 
 % Jammer parameters
 switch lower(gl_params.jammerType)
@@ -117,7 +117,7 @@ bw_sig = gl_params.bw_sig;
 gl_params.numPackets = 20;
 gl_params.dataSymbolsPerPacket = 10;
 gl_params.guardIntervalSec = 100e-6;
-gl_params.guardIntervalN = round(100e-6*gl_params.fs);
+gl_params.guardIntervalN = round(gl_params.guardIntervalSec*gl_params.fs);
 gl_params.preambleDurSec = 0.3e-3;
 gl_params.randSeed = rand; 
 gl_params.NFFT = 128; 
@@ -187,7 +187,7 @@ gl_params.preamble = preamble_td(:).';           % row vector
 gl_params.Lp = numel(gl_params.preamble);
 gl_params.L = 2;
 % Buffer to handle preamble across frame boundaries
-bufferLenSamples = 2*ofdm_params.packetSamples + gl_params.guardIntervalN;
+bufferLenSamples = 1*ofdm_params.packetSamples + gl_params.guardIntervalN;
 corrBuf = zeros(gl_params.numElements, bufferLenSamples);         
 
 hist1 = NaN(1,5);
@@ -245,9 +245,9 @@ for k = 1:gl_params.numFrames
     if npc == 2
         R_2 = gl_params.lambda_mem * R_2 + (1 - gl_params.lambda_mem) * R_inst;
         R = R_2;
-    % elseif npc == 1
-    %     R_1 = gl_params.lambda_mem * R_1 + (1 - gl_params.lambda_mem) * R_inst;
-    %     R = R_1;
+    elseif npc == 1
+        R_1 = gl_params.lambda_mem * R_1 + (1 - gl_params.lambda_mem) * R_inst;
+        R = R_1;
     else
         R = R_inst;
     end

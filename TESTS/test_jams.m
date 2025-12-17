@@ -4,12 +4,12 @@ clear; clc; close all;
 
 %% Global simulation parameters
 
-fs    = 2e9;          % Sampling frequency [Hz] (reduced for testing)
-Tsim  = 10e-3;           % Total simulation time [s]
+fs    = 1.5e9;          % Sampling frequency [Hz] (reduced for testing)
+Tsim  = 3e-3;           % Total simulation time [s]
 t     = (0:1/fs:Tsim-1/fs);   % Time vector [1 x N]
 N     = numel(t);
 f0    = 1.5e9;          % Carrier frequency [Hz] (not directly used here)
-bw_tx = 1e9;           % Nominal TX bandwidth [Hz]
+bw_tx = 20e6;           % Nominal TX bandwidth [Hz]
 
 %% Helper function for FFT plotting (nested function)
 plot_dB_spectrum = @(sig, fs, titleStr) ...
@@ -71,7 +71,7 @@ plot_dB_spectrum(jammer_sweep, fs, 'Sweep jammer (20 tones)');
 
 params_mt = struct();
 params_mt.numTones     = 5;        % 5 tones
-params_mt.fSpanHz      = 1e9;     % tones across +/-20 MHz
+params_mt.fSpanHz      = 20e6;     % tones across +/-20 MHz
 
 jammer_multitone = generate_jammer('MultiTone', t, fs, f0, bw_tx, params_mt);
 

@@ -36,7 +36,7 @@ function w_q = quantize_weight_vector(w, bits_phase, bits_gain)
     % Simulating Digital Attenuators.
     % Assume the maximum possible gain is the maximum value in the current vector.
     max_val = max(mag_w);
-    
+    % max_val = 70;
     if max_val > 0
         % Normalize values to [0, 1) relative to the maximum
         norm_mag = mag_w / max_val;
