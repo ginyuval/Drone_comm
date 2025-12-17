@@ -43,19 +43,19 @@ function [theta_des_hat, metric, corrBufOut] = select_desired_doa_by_preamble(Xk
         % Perform correlation on the processed signal
         r = conv(y_proc, h, 'full');
 
-        if i == 1
-            plot(abs(r), '-o', 'Color', 'red')
-            hold on;
-        else
-            plot(abs(r), '-*', 'Color', 'blue')
-        end
+        % if i == 1
+        %     plot(abs(r), '-o', 'Color', 'red')
+        %     hold on;
+        % else
+        %     plot(abs(r), '-*', 'Color', 'blue')
+        % end
         
 
         % The metric is the peak magnitude
         metrics(i) = max(abs(r));
     end
-    hold off
-    drawnow
+    % hold off
+    % drawnow
     % Select the angle with the highest correlation
     [metric, idxBest] = max(metrics);
     theta_des_hat = candAnglesDeg(idxBest);

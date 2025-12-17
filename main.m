@@ -1,7 +1,7 @@
 %% DRONE COMMUNICATION SIMULATION – MAIN SCRIPT (UPDATED WITH gl_params)
 
 clear; clc; close all;
-% addpath ('C:\Users\ginyu\OneDrive - Technion\Desktop\טכניון\תואר שני\Thesis\PMO_project\Drone_comm\*')
+addpath(genpath('C:\Users\ginyu\OneDrive - Technion\Desktop\טכניון\תואר שני\Thesis\PMO_project\Drone_comm\'))
 %% ========================= 1) DEFINE GLOBAL PARAMETERS ===================
 
 gl_params = struct();
@@ -17,12 +17,12 @@ gl_params.d           = 0.5 * gl_params.lambda;
 
 % Sampling and timing
 gl_params.fs      = 60e6;                 % Sampling frequency [Hz]
-gl_params.Tsim    = 3e-3;                % Total simulation time [s]
+gl_params.Tsim    = 1e-3;                % Total simulation time [s]
 gl_params.t       = 0 : 1/gl_params.fs : gl_params.Tsim - 1/gl_params.fs;
 gl_params.N       = numel(gl_params.t);
 
 % ---------------- FRAME-BASED PROCESSING (FIXED) ----------------
-gl_params.frameDur  = 20e-6;                                % Frame duration [s]
+gl_params.frameDur  = 10e-6;                                % Frame duration [s]
 gl_params.frameLen  = round(gl_params.frameDur * gl_params.fs);
 
 % Number of frames needed to cover ALL samples
@@ -53,7 +53,7 @@ gl_params.scanAngles = -90:0.5:90;
 
 
 % Jammer type selection
-gl_params.jammerType = 'spot';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
+gl_params.jammerType = 'Spot';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
 
 % Jammer parameters
 switch lower(gl_params.jammerType)
@@ -304,9 +304,9 @@ legend('Beamformer output SNR','Location','best');
 % ===================== Subplot 2: Beamformer Output Components =====================
 subplot(3,1,2);
 hold on;
-plot(gl_params.t*1e3, abs(y_sig_out)/norm(y_sig_out));
-plot(gl_params.t*1e3, abs(y_jam_out)/norm(y_sig_out));
-plot(gl_params.t*1e3, abs(y_noise_out)/norm(y_sig_out));
+plot(gl_params.t*1e3, db(medfilt1(abs(y_sig_out)/norm(y_sig_out), 200)));
+plot(gl_params.t*1e3, db(medfilt1(abs(y_jam_out)/norm(y_sig_out), 200)));
+plot(gl_params.t*1e3, db(medfilt1(abs(y_noise_out)/norm(y_sig_out), 200)));
 hold off;
 
 xlabel('Time [ms]');
@@ -318,9 +318,9 @@ legend({'Desired signal','Interference','Noise'}, 'Location','best');
 % ===================== Subplot 3: Beamformer Input Components =====================
 subplot(3,1,3);
 hold on;
-plot(gl_params.t*1e3, abs(s_bb)/norm(s_bb)/4);
-plot(gl_params.t*1e3, abs(jammer_scaled)/norm(s_bb)/4);
-plot(gl_params.t*1e3, abs(noise(1,:))/norm(s_bb)/4);
+plot(gl_params.t*1e3, db(medfilt1(abs(s_bb)/norm(s_bb), 200)));
+plot(gl_params.t*1e3, db(medfilt1(abs(jammer_scaled)/norm(s_bb), 200)));
+plot(gl_params.t*1e3, db(medfilt1(abs(noise(1,:))/norm(s_bb), 200)));
 hold off;
 
 xlabel('Time [ms]');
