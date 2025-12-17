@@ -29,7 +29,7 @@ gl_params.sqnr_phase = 6.02*gl_params.bits_phase + 1.76;
 gl_params.sqnr_gain = 6.02*gl_params.bits_gain + 1.76;
 
 % ---------------- FRAME-BASED PROCESSING (FIXED) ----------------
-gl_params.frameDur  = 10e-6;                                % Frame duration [s]
+gl_params.frameDur  = 20e-6;                                % Frame duration [s]
 gl_params.frameLen  = round(gl_params.frameDur * gl_params.fs);
 
 % Number of frames needed to cover ALL samples
@@ -40,19 +40,19 @@ gl_params.Nproc     = gl_params.numFrames * gl_params.frameLen;
 % ---------------------------------------------------------------
 
 % Covariance memory factor
-gl_params.lambda_mem = 0.4;
+gl_params.lambda_mem = 0.0;
 
 % Signal bandwidth
 gl_params.bw_sig = 20e6;
 gl_params.bw_tx  = gl_params.bw_sig;
 
 % SNR / SIR
-gl_params.SNR_in_dB = 15;
-gl_params.SIR_in_dB = -15;
+gl_params.SNR_in_dB = 20;
+gl_params.SIR_in_dB = -10;
 
 % DOAs
 gl_params.theta_desired_deg = -30;
-gl_params.theta_jammer_deg  = 15;
+gl_params.theta_jammer_deg  = 10;
 gl_params.num_signals = 2;
 
 % Scan grid
@@ -303,11 +303,12 @@ end
 
 %% ========================= 9) PLOTS ======================================
 
+LW = 3;
 figure;
 
 % ===================== Subplot 1: Output SNR =====================
 subplot(3,1,1);
-plot(1:gl_params.numFrames, SNR_out_dB, '-o');
+plot(1:gl_params.numFrames, SNR_out_dB, '-*', LineWidth=LW);
 xlabel('Frame index');
 ylabel('Output SNR [dB]');
 title('Per-frame output SNR');
@@ -318,9 +319,9 @@ legend('Beamformer output SNR','Location','best');
 % ===================== Subplot 2: Beamformer Output Components =====================
 subplot(3,1,2);
 hold on;
-plot(gl_params.t*1e3, db(medfilt1(abs(y_sig_out)/norm(y_sig_out), 200)));
-plot(gl_params.t*1e3, db(medfilt1(abs(y_jam_out)/norm(y_sig_out), 200)));
-plot(gl_params.t*1e3, db(medfilt1(abs(y_noise_out)/norm(y_sig_out), 200)));
+plot(gl_params.t*1e3, db(medfilt1(abs(y_sig_out)/norm(y_sig_out), 200)), LineWidth=LW);
+plot(gl_params.t*1e3, db(medfilt1(abs(y_jam_out)/norm(y_sig_out), 200)), LineWidth=LW);
+plot(gl_params.t*1e3, db(medfilt1(abs(y_noise_out)/norm(y_sig_out), 200)), LineWidth=LW);
 hold off;
 
 xlabel('Time [ms]');
@@ -332,9 +333,9 @@ legend({'Desired signal','Interference','Noise'}, 'Location','best');
 % ===================== Subplot 3: Beamformer Input Components =====================
 subplot(3,1,3);
 hold on;
-plot(gl_params.t*1e3, db(medfilt1(abs(s_bb)/norm(s_bb), 200)));
-plot(gl_params.t*1e3, db(medfilt1(abs(jammer_scaled)/norm(s_bb), 200)));
-plot(gl_params.t*1e3, db(medfilt1(abs(noise(1,:))/norm(s_bb), 200)));
+plot(gl_params.t*1e3, db(medfilt1(abs(s_bb)/norm(s_bb), 200)), LineWidth=LW);
+plot(gl_params.t*1e3, db(medfilt1(abs(jammer_scaled)/norm(s_bb), 200)), LineWidth=LW);
+plot(gl_params.t*1e3, db(medfilt1(abs(noise(1,:))/norm(s_bb), 200)), LineWidth=LW);
 hold off;
 
 xlabel('Time [ms]');

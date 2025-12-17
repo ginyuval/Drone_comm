@@ -1,6 +1,6 @@
 %% DRONE COMMUNICATION SIMULATION – MAIN SCRIPT (UPDATED WITH gl_params)
 
-% clear; clc; close all;
+clear; clc; close all;
 addpath(genpath('C:\Users\ginyu\OneDrive - Technion\Desktop\טכניון\תואר שני\Thesis\PMO_project\Drone_comm\'))
 %% ========================= 1) DEFINE GLOBAL PARAMETERS ===================
 
@@ -29,7 +29,7 @@ gl_params.sqnr_phase = 6.02*gl_params.bits_phase + 1.76;
 gl_params.sqnr_gain = 6.02*gl_params.bits_gain + 1.76;
 
 % ---------------- FRAME-BASED PROCESSING (FIXED) ----------------
-gl_params.frameDur  = 40e-6;                                % Frame duration [s]
+gl_params.frameDur  = 20e-6;                                % Frame duration [s]
 gl_params.frameLen  = round(gl_params.frameDur * gl_params.fs);
 
 % Number of frames needed to cover ALL samples
