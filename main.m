@@ -24,7 +24,7 @@ gl_params.N       = numel(gl_params.t);
 % --- Quantization Parameters ---
 gl_params.use_quantization = true; 
 gl_params.bits_phase       = 8;    
-gl_params.bits_gain        = 8;
+gl_params.bits_gain        = 6;
 gl_params.sqnr_phase = 6.02*gl_params.bits_phase + 1.76;
 gl_params.sqnr_gain = 6.02*gl_params.bits_gain + 1.76;
 
@@ -48,7 +48,7 @@ gl_params.bw_tx  = gl_params.bw_sig;
 
 % SNR / SIR
 gl_params.SNR_in_dB = 20;
-gl_params.SIR_in_dB = -15;
+gl_params.SIR_in_dB = -20;
 
 % DOAs
 gl_params.theta_desired_deg = -30;
@@ -60,7 +60,7 @@ gl_params.scanAngles = -90:0.5:90;
 
 
 % Jammer type selection
-gl_params.jammerType = 'MultiTone';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
+gl_params.jammerType = 'spot';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
 
 % Jammer parameters
 switch lower(gl_params.jammerType)
