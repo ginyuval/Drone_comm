@@ -7,26 +7,26 @@ The system features a complete processing chain: from **OFDM signal generation**
 
 ## Key Features
 
-### ?? Signal & Interference Modeling
+### 📡 Signal & Interference Modeling
 * **OFDM Waveform:** Generates QPSK-modulated OFDM signals with a cyclic preamble structure for robust synchronization and correlation.
 * **Packet Structure:** Supports frame-based processing with configurable guard intervals and packet lengths.
 * **Versatile Jammer Generator:**
     * `Spot`: Narrowband burst interference (time-gated).
     * `Barrage`: Wideband noise jamming.
-    * `Sweep`: Chirped or frequency-hopping interference.
+    * `Sweep`: Frequency-hopping interference.
     * `MultiTone`: Multiple simultaneous CW tones.
     * `CW`: Continuous Wave interference.
 
-### ??? Array Processing & Beamforming
+### 🎛️ Array Processing & Beamforming
 * **DOA Estimation:** Utilizes **MVDR** (Minimum Variance Distortionless Response) for initial angle-of-arrival detection.
 * **Spatial Smoothing:** Implements `pc_beamformer_ss` to handle coherent signals and improve covariance matrix rank, ensuring effective nulling even with correlated interference.
 * **Principal Component (PC) Beamformer:** Projects the signal onto a subspace orthogonal to the interference.
 
-### ?? Smart Target Identification
+### 🧠 Smart Target Identification
 * **Preamble Correlation:** Distinguishes the desired user from jammers (even when $SIR < 0$ dB) by correlating beamformed outputs with a known preamble sequence.
 * **Raw Data Buffering:** Uses a sliding buffer mechanism to detect preambles that cross frame boundaries.
 
-### ?? Hardware Realism
+### ⚙️ Hardware Realism
 * **Quantization Modeling:** Simulates the effects of limited-resolution phase shifters and attenuators (Digital Step Attenuators).
     * Configurable bits for **Phase** (e.g., 6-8 bits).
     * Configurable bits for **Gain** (e.g., 5-6 bits).
@@ -36,21 +36,21 @@ The system features a complete processing chain: from **OFDM signal generation**
 ### Root
 * `main.m`: **Entry point.** Configures global parameters (`gl_params`), executes the frame-based simulation loop, and visualizes performance (SNR, Spectrum, Time-domain).
 
-### ?? /signals
+### 📁 /signals
 * `generate_ofdm_signal_multi.m`: Generates the baseband OFDM signal (Packets + Preamble + Guard). Uses a cyclic QPSK preamble vector for low PAPR.
 
-### ?? /jammers
+### 📁 /jammers
 * `generate_jammer.m`: Factory function for creating interference.
 * `generate_spot_jammer.m`, `generate_barrage_jammer.m`, etc.: Specific jammer implementations.
 
-### ?? /utilities
+### 📁 /utilities
 * `pc_beamformer_ss.m`: **Core Algorithm.** Principal Component Beamformer with Spatial Smoothing.
 * `select_desired_doa_by_preamble.m`: Logic for selecting the correct DOA using matched filtering on buffered data.
 * `quantize_weight_vector.m`: Simulates hardware quantization effects on the beamforming weights.
 * `fix_angle_indexing_5.m`: Tracker to maintain consistent DOA indexing across frames.
 * `steering_vec_ula.m`: Generates the steering vector for the ULA.
 
-### ?? /TESTS
+### 📁 /TESTS
 Standalone scripts for performance sensitivity analysis:
 * `Test_Frame_Duration.m`: Analyzes output SNR vs. processing frame duration.
 * `Test_Preamble_Duration.m`: Analyzes performance vs. preamble length.
@@ -86,4 +86,4 @@ Standalone scripts for performance sensitivity analysis:
 * **Spatial Smoothing:** This is crucial when the jammer is coherent or when the covariance matrix is ill-conditioned. It effectively creates a "sub-array" averaging effect.
 
 ## Author
-[Your Name / Technion]
+[Yuval Ginzberg - Technion]
