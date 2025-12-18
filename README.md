@@ -1,73 +1,89 @@
-# Drone Communication Anti-Jamming Simulation with Spatial Smoothing
+# Drone Communication Anti-Jamming Simulation
 
 ## Overview
-This MATLAB project simulates an uplink communication scenario between a drone (or ground station) and a receiver equipped with a Uniform Linear Array (ULA). The primary goal of the simulation is to demonstrate robust **Anti-Jamming (AJ)** capabilities using beamforming techniques.
+This MATLAB project simulates a robust uplink communication scenario between a drone and a ground receiver equipped with a **Uniform Linear Array (ULA)**. The simulation demonstrates advanced **Anti-Jamming (AJ)** capabilities using beamforming techniques, focusing on identifying and nulling strong interference while maintaining the integrity of the desired signal under realistic hardware constraints.
 
-The system is designed to distinguish a desired OFDM signal from various types of interference (jammers) using **DOA (Direction of Arrival) estimation**, **Preamble Correlation**, and **Spatial Smoothing**.
+The system features a complete processing chain: from **OFDM signal generation** and **channel modeling**, through **DOA estimation** and **Target Identification**, to **Spatial Smoothing Beamforming** and **Hardware Quantization modeling**.
 
 ## Key Features
 
-* **OFDM Signal Generation:** Generates QPSK-modulated OFDM signals with cyclic preambles for synchronization and identification.
-* **Interference Modeling:** Includes a versatile jammer generator supporting multiple modes:
-    * `CW` (Continuous Wave)
-    * `Barrage` (Wideband Noise)
-    * `Spot` (Narrowband Burst)
-    * `Sweep` (Chirped/Hopping)
-    * `MultiTone`
-* **Array Processing:**
-    * **ULA Configuration:** Simulation of a 4-element array (configurable).
-    * **Spatial Smoothing:** Implemented to decorrelate coherent signals or improve covariance matrix rank estimation.
-    * **MVDR Estimation:** Uses Minimum Variance Distortionless Response for initial DOA detection.
-    * **PC Beamforming:** Principal Component Beamforming with spatial smoothing (`pc_beamformer_ss`) to null nullify interference.
-* **Smart Source Selection:**
-    * Algorithm to automatically identify the desired user vs. the jammer.
-    * Uses **Preamble Correlation** (Matched Filter) on raw buffered data to associate the correct DOA with the desired signal, even when the jammer is stronger (negative SIR).
-    * Includes a **Frame-Based Buffer** mechanism to handle preambles crossing frame boundaries.
+### ?? Signal & Interference Modeling
+* **OFDM Waveform:** Generates QPSK-modulated OFDM signals with a cyclic preamble structure for robust synchronization and correlation.
+* **Packet Structure:** Supports frame-based processing with configurable guard intervals and packet lengths.
+* **Versatile Jammer Generator:**
+    * `Spot`: Narrowband burst interference (time-gated).
+    * `Barrage`: Wideband noise jamming.
+    * `Sweep`: Chirped or frequency-hopping interference.
+    * `MultiTone`: Multiple simultaneous CW tones.
+    * `CW`: Continuous Wave interference.
+
+### ??? Array Processing & Beamforming
+* **DOA Estimation:** Utilizes **MVDR** (Minimum Variance Distortionless Response) for initial angle-of-arrival detection.
+* **Spatial Smoothing:** Implements `pc_beamformer_ss` to handle coherent signals and improve covariance matrix rank, ensuring effective nulling even with correlated interference.
+* **Principal Component (PC) Beamformer:** Projects the signal onto a subspace orthogonal to the interference.
+
+### ?? Smart Target Identification
+* **Preamble Correlation:** Distinguishes the desired user from jammers (even when $SIR < 0$ dB) by correlating beamformed outputs with a known preamble sequence.
+* **Raw Data Buffering:** Uses a sliding buffer mechanism to detect preambles that cross frame boundaries.
+
+### ?? Hardware Realism
+* **Quantization Modeling:** Simulates the effects of limited-resolution phase shifters and attenuators (Digital Step Attenuators).
+    * Configurable bits for **Phase** (e.g., 6-8 bits).
+    * Configurable bits for **Gain** (e.g., 5-6 bits).
 
 ## File Structure
 
-### Root Directory
-* `main.m`: The entry point of the simulation. Configures parameters (`gl_params`), runs the frame loop, performs beamforming, and plots SNR/Signal results.
+### Root
+* `main.m`: **Entry point.** Configures global parameters (`gl_params`), executes the frame-based simulation loop, and visualizes performance (SNR, Spectrum, Time-domain).
 
-### /signals
-* `generate_ofdm_signal_multi.m`: Generates the desired baseband OFDM waveform with packet structure and guard intervals.
+### ?? /signals
+* `generate_ofdm_signal_multi.m`: Generates the baseband OFDM signal (Packets + Preamble + Guard). Uses a cyclic QPSK preamble vector for low PAPR.
 
-### /jammers
-* `generate_jammer.m`: Wrapper function to generate interference.
-* `generate_barrage_jammer.m`, `generate_spot_jammer.m`, etc.: Specific implementations for different jamming profiles.
+### ?? /jammers
+* `generate_jammer.m`: Factory function for creating interference.
+* `generate_spot_jammer.m`, `generate_barrage_jammer.m`, etc.: Specific jammer implementations.
 
-### /utilities
-* `select_desired_doa_by_preamble.m`: Core logic for distinguishing the desired signal from the jammer using correlation metrics and historical raw data buffering.
-* `pc_beamformer_ss.m`: Implementation of the PC Beamformer with Spatial Smoothing.
-* `steering_vec_ula.m`: Computes steering vectors for the ULA.
-* `fix_angle_indexing_5.m`: Tracks and stabilizes DOA estimates across frames to prevent index swapping.
+### ?? /utilities
+* `pc_beamformer_ss.m`: **Core Algorithm.** Principal Component Beamformer with Spatial Smoothing.
+* `select_desired_doa_by_preamble.m`: Logic for selecting the correct DOA using matched filtering on buffered data.
+* `quantize_weight_vector.m`: Simulates hardware quantization effects on the beamforming weights.
+* `fix_angle_indexing_5.m`: Tracker to maintain consistent DOA indexing across frames.
+* `steering_vec_ula.m`: Generates the steering vector for the ULA.
 
-## Installation & Usage
+### ?? /TESTS
+Standalone scripts for performance sensitivity analysis:
+* `Test_Frame_Duration.m`: Analyzes output SNR vs. processing frame duration.
+* `Test_Preamble_Duration.m`: Analyzes performance vs. preamble length.
+* `Test_Quantization_vs_Osnr.m`: Evaluates the degradation caused by limited phase/gain bits.
+* `Test_Sir_vs_Osnr.m`: Tests the system's limit by sweeping input SIR (from -30dB to +10dB).
+
+## Getting Started
 
 1.  **Prerequisites:**
-    * MATLAB (R2021b or later recommended).
-    * Phased Array System Toolbox (required for `phased.ULA` and `phased.MVDREstimator`).
+    * MATLAB (R2021b+ recommended).
+    * Phased Array System Toolbox.
 
-2.  **Running the Simulation:**
-    * Open `main.m`.
-    * Adjust the global parameters (`gl_params`) section to test different scenarios:
-        ```matlab
-        gl_params.SNR_in_dB = 15;        % Signal-to-Noise Ratio
-        gl_params.SIR_in_dB = -20;       % Signal-to-Interference Ratio (Negative = Strong Jammer)
-        gl_params.theta_desired_deg = -30;
-        gl_params.theta_jammer_deg  = 19;
-        gl_params.jammerType = 'spot';   % Choose: 'cw', 'barrage', 'spot', etc.
-        ```
-    * Run the script.
+2.  **Configuration (`gl_params` in `main.m`):**
+    Adjust the simulation parameters at the top of the script:
+    ```matlab
+    gl_params.SNR_in_dB = 20;          % Thermal Noise floor
+    gl_params.SIR_in_dB = -20;         % Strong Jammer scenario
+    gl_params.jammerType = 'Spot';     % Interference type
+    gl_params.use_quantization = true; % Enable hardware simulation
+    gl_params.bits_phase = 8;          % Phase shifter resolution
+    gl_params.bits_gain = 6;           % Attenuator resolution
+    ```
 
-3.  **Outputs:**
-    * **SNR Plot:** Shows the output SINR per processed frame.
-    * **Beamformer Output:** Time-domain visualization of the recovered signal vs. residual interference and noise.
+3.  **Run:**
+    Execute `main.m`. The script will output:
+    * **Figure 1:** Per-frame Output SNR.
+    * **Figure 1 (Subplots):** Time-domain comparison of input vs. output signals (Desired, Jammer, Noise).
 
-## Algorithm Logic
-1.  **Frame Processing:** The continuous signal is sliced into short processing frames.
-2.  **Covariance Estimation:** The sample covariance matrix is computed for each frame.
-3.  **DOA Estimation:** MVDR estimates candidate angles of arrival.
-4.  **Target Identification:** The `select_desired_doa_by_preamble` function steers a beam towards each candidate angle using historical raw data (Pre-Beamforming Buffer) and correlates the output with the known preamble sequence. The angle yielding the highest correlation peak is identified as the **Desired Signal**.
-5.  **Beamforming:** A Principal Component beamformer (with Spatial Smoothing) is calculated to maximize gain towards the desired angle while suppressing the jammer.
+## Simulation Insights
 
+* **Quantization Effect:** When `use_quantization` is enabled, the null depth is limited by the bit resolution. A 6-bit gain quantization typically limits the maximum achievable SIR improvement to ~35-40 dB.
+* **Spot Jammer:** The Spot Jammer operates with a duty cycle. Note that `main.m` normalizes power over the *entire* duration, meaning the jammer's peak power during the "On" time is significantly higher than the average SIR indicates, providing a stress test for the beamformer.
+* **Spatial Smoothing:** This is crucial when the jammer is coherent or when the covariance matrix is ill-conditioned. It effectively creates a "sub-array" averaging effect.
+
+## Author
+[Your Name / Technion]
