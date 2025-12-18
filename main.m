@@ -60,7 +60,7 @@ gl_params.scanAngles = -90:0.5:90;
 
 
 % Jammer type selection
-gl_params.jammerType = 'spot';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
+gl_params.jammerType = 'Sweep';                   % 'CW','Barrage','Spot','Sweep','MultiTone'
 
 % Jammer parameters
 switch lower(gl_params.jammerType)
@@ -260,7 +260,6 @@ for k = 1:gl_params.numFrames
     % w = pc_beamformer(R, npc, gl_params.numElements, estTheta_des);
     w = pc_beamformer_ss(R, npc, gl_params.numElements, estTheta_des, gl_params.L);
     w = (w)/norm(w);
-    
 
     % w_q = w;   % If quantizing later: apply fi() here
     % ---------- Hardware Quantization ----------
